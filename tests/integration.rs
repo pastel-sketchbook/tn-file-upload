@@ -17,9 +17,7 @@ use tn_file_upload::storage::local::LocalStorage;
 
 async fn spawn_server() -> String {
     let dir = tempfile::tempdir().unwrap();
-    let storage = LocalStorage::new(dir.into_path(), 1024 * 1024)
-        .await
-        .unwrap();
+    let storage = LocalStorage::new(dir.keep(), 1024 * 1024).await.unwrap();
     let service = FileUploadService::new(Arc::new(storage), 64 * 1024);
 
     let listener = TcpListener::bind("[::1]:0").await.unwrap();

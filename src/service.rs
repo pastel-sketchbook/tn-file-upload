@@ -193,13 +193,10 @@ impl FileUploadService {
 mod tests {
     use super::*;
     use crate::storage::local::LocalStorage;
-    use bytes::Bytes;
 
     async fn test_service() -> FileUploadService {
         let dir = tempfile::tempdir().unwrap();
-        let storage = LocalStorage::new(dir.into_path(), 1024 * 1024)
-            .await
-            .unwrap();
+        let storage = LocalStorage::new(dir.keep(), 1024 * 1024).await.unwrap();
         FileUploadService::new(Arc::new(storage), 64 * 1024)
     }
 
