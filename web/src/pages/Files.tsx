@@ -110,7 +110,7 @@ function SlideshowModal({
 			aria-label={`Slideshow: ${file.fileName}`}
 		>
 			<div
-				className="relative w-[92vw] max-w-5xl h-[88vh] bg-surface/95 rounded-[var(--radius-xl)] border border-border/50 shadow-2xl overflow-hidden flex flex-col backdrop-blur-sm animate-[modalIn_0.3s_ease-out]"
+				className="relative w-full max-w-[80%] h-[88vh] bg-surface/95 rounded-[var(--radius-xl)] border border-border/50 shadow-2xl overflow-hidden flex flex-col backdrop-blur-sm animate-[modalIn_0.3s_ease-out]"
 				onClick={(e) => e.stopPropagation()}
 				role="document"
 				onKeyDown={() => {}}
@@ -209,21 +209,27 @@ function SlideContent({ file }: { file: FileMeta }) {
 	const [objectUrl, setObjectUrl] = useState<string | null>(null)
 	const [textContent, setTextContent] = useState<string | null>(null)
 	const [loading, setLoading] = useState(true)
-	const [animClass, setAnimClass] = useState(
-		'animate-[pageFlip_0.6s_cubic-bezier(0.4,0,0.2,1)]',
-	)
-	const [flipKey, setFlipKey] = useState(0)
+	const [ready, setReady] = useState(false)
+	const [tiles, setTiles] = useState<number[]>([])
+
+	// Generate randomized strip reveal order
+	useEffect(() => {
+		const stripCount = 16
+		const indices = Array.from({ length: stripCount }, (_, i) => i)
+		for (let i = indices.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1))
+			;[indices[i], indices[j]] = [indices[j], indices[i]]
+		}
+		setTiles(indices)
+	}, [])
 
 	useEffect(() => {
 		let cancelled = false
 		let url: string | null = null
 		setLoading(true)
+		setReady(false)
 		setObjectUrl(null)
 		setTextContent(null)
-
-		// Re-trigger animation on every navigation
-		setFlipKey((k) => k + 1)
-		setAnimClass('animate-[pageFlip_0.6s_cubic-bezier(0.4,0,0.2,1)]')
 
 		downloadFile(file.fileId)
 			.then((blob) => {
@@ -233,12 +239,37 @@ function SlideContent({ file }: { file: FileMeta }) {
 						if (!cancelled) {
 							setTextContent(text)
 							setLoading(false)
+							requestAnimationFrame(() => {
+								requestAnimationFrame(() => {
+									if (!cancelled) setReady(true)
+								})
+							})
 						}
 					})
+				} else if (file.contentType.startsWith('image/')) {
+					url = URL.createObjectURL(blob)
+					const img = new Image()
+					img.onload = () => {
+						if (!cancelled) {
+							setObjectUrl(url)
+							setLoading(false)
+							requestAnimationFrame(() => {
+								requestAnimationFrame(() => {
+									if (!cancelled) setReady(true)
+								})
+							})
+						}
+					}
+					img.src = url
 				} else {
 					url = URL.createObjectURL(blob)
 					setObjectUrl(url)
 					setLoading(false)
+					requestAnimationFrame(() => {
+						requestAnimationFrame(() => {
+							if (!cancelled) setReady(true)
+						})
+					})
 				}
 			})
 			.catch(() => {
@@ -254,56 +285,78 @@ function SlideContent({ file }: { file: FileMeta }) {
 		}
 	}, [file.fileId, file.contentType])
 
+	const stripCount = 16
+
 	return (
-		<div
-			key={flipKey}
-			className={`absolute inset-0 flex items-center justify-center p-8 ${animClass}`}
-			style={{ transformStyle: 'preserve-3d' }}
-		>
+		<div className="absolute inset-0 flex items-center justify-center p-8">
 			{loading ? (
-				<div className="flex flex-col items-center gap-3">
+				<div className="flex flex-col items-center gap-3 animate-[fadeIn_0.2s_ease-out]">
 					<div className="w-10 h-10 border-3 border-accent/20 border-t-accent rounded-full animate-spin" />
 					<p className="text-sm text-text-muted">Loading preview...</p>
 				</div>
-			) : textContent !== null ? (
-				<pre className="w-full h-full overflow-auto text-sm text-text-primary font-mono bg-surface-alt/80 p-6 rounded-[var(--radius-lg)] whitespace-pre-wrap break-words border border-border/30">
-					{textContent}
-				</pre>
-			) : file.contentType.startsWith('image/') && objectUrl ? (
-				<img
-					src={objectUrl}
-					alt={file.fileName}
-					className="max-w-full max-h-full object-contain rounded-[var(--radius-lg)] shadow-lg animate-[zoomIn_0.3s_ease-out]"
-				/>
-			) : file.contentType.startsWith('video/') && objectUrl ? (
-				<video
-					src={objectUrl}
-					controls
-					className="max-w-full max-h-full rounded-[var(--radius-lg)] shadow-lg"
-				>
-					<track kind="captions" />
-				</video>
-			) : file.contentType.startsWith('audio/') && objectUrl ? (
-				<div className="flex flex-col items-center gap-6">
-					<div className="w-32 h-32 rounded-full bg-accent-light flex items-center justify-center animate-pulse">
-						<FileText className="w-16 h-16 text-accent" />
-					</div>
-					<audio src={objectUrl} controls className="w-80">
-						<track kind="captions" />
-					</audio>
-				</div>
-			) : file.contentType === 'application/pdf' && objectUrl ? (
-				<iframe
-					src={objectUrl}
-					title={file.fileName}
-					className="w-full h-full rounded-[var(--radius-lg)] border border-border/30"
-				/>
 			) : (
-				<div className="flex flex-col items-center gap-3">
-					<FileText className="w-16 h-16 text-text-muted/30" />
-					<p className="text-text-muted text-sm">
-						Preview not available for this file type.
-					</p>
+				<div className="relative w-full h-full flex items-center justify-center">
+					{/* Strip overlay */}
+					<div className="absolute inset-0 z-10 flex pointer-events-none">
+						{tiles.map((orderIndex, _stripIndex) => (
+							<div
+								key={`strip-${orderIndex}`}
+								className="h-full transition-opacity ease-[cubic-bezier(0.16,1,0.3,1)]"
+								style={{
+									width: `${100 / stripCount}%`,
+									backgroundColor: 'var(--color-surface)',
+									opacity: ready ? 0 : 1,
+									transitionDuration: '400ms',
+									transitionDelay: ready ? `${orderIndex * 30}ms` : '0ms',
+								}}
+							/>
+						))}
+					</div>
+
+					{/* Actual content underneath */}
+					<div className="w-full h-full flex items-center justify-center">
+						{textContent !== null ? (
+							<pre className="w-full h-full overflow-auto text-sm text-text-primary font-mono bg-surface-alt/80 p-6 rounded-[var(--radius-lg)] whitespace-pre-wrap break-words border border-border/30">
+								{textContent}
+							</pre>
+						) : file.contentType.startsWith('image/') && objectUrl ? (
+							<img
+								src={objectUrl}
+								alt={file.fileName}
+								className="max-w-full max-h-full object-contain rounded-[var(--radius-lg)] shadow-lg"
+							/>
+						) : file.contentType.startsWith('video/') && objectUrl ? (
+							<video
+								src={objectUrl}
+								controls
+								className="max-w-full max-h-full rounded-[var(--radius-lg)] shadow-lg"
+							>
+								<track kind="captions" />
+							</video>
+						) : file.contentType.startsWith('audio/') && objectUrl ? (
+							<div className="flex flex-col items-center gap-6">
+								<div className="w-32 h-32 rounded-full bg-accent-light flex items-center justify-center">
+									<FileText className="w-16 h-16 text-accent" />
+								</div>
+								<audio src={objectUrl} controls className="w-80">
+									<track kind="captions" />
+								</audio>
+							</div>
+						) : file.contentType === 'application/pdf' && objectUrl ? (
+							<iframe
+								src={objectUrl}
+								title={file.fileName}
+								className="w-full h-full rounded-[var(--radius-lg)] border border-border/30"
+							/>
+						) : (
+							<div className="flex flex-col items-center gap-3">
+								<FileText className="w-16 h-16 text-text-muted/30" />
+								<p className="text-text-muted text-sm">
+									Preview not available for this file type.
+								</p>
+							</div>
+						)}
+					</div>
 				</div>
 			)}
 		</div>
