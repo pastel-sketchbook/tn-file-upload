@@ -43,6 +43,7 @@ async fn main() -> Result<()> {
     let rest_state = Arc::new(RestState {
         storage: storage.clone(),
         chunk_size: config.chunk_size,
+        max_file_size: config.max_file_size,
     });
     let rest_router = rest::router(rest_state);
     let rest_listener = TcpListener::bind(rest_addr)

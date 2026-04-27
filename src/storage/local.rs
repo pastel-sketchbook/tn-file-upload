@@ -217,4 +217,41 @@ impl Storage for LocalStorage {
         let _ = fs::remove_file(self.meta_path(file_id)).await;
         Ok(())
     }
+
+    async fn list(&self) -> Result<Vec<FileMetadata>, StorageError> {
+        let mut entries = fs::read_dir(&self.base_path).await?;
+        let mut files = Vec::new();
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            let Some(ext) = path.extension() else {
+                continue;
+            };
+            if ext != "meta" {
+                continue;
+            }
+
+            let meta_bytes = fs::read(&path).await?;
+            let Ok(meta) = serde_json::from_slice::<MetaRecord>(&meta_bytes) else {
+                continue;
+            };
+
+            if !meta.finalized {
+                continue;
+            }
+
+            files.push(FileMetadata {
+                file_id: meta.file_id,
+                file_name: meta.file_name,
+                content_type: meta.content_type,
+                size_bytes: meta.size_bytes,
+                sha256_checksum: meta.sha256_checksum,
+                uploaded_at: meta.uploaded_at,
+            });
+        }
+
+        // Sort by upload time descending (newest first)
+        files.sort_by(|a, b| b.uploaded_at.cmp(&a.uploaded_at));
+        Ok(files)
+    }
 }

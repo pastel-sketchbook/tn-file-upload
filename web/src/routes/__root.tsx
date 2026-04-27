@@ -26,10 +26,10 @@ function NavLink({
 	return (
 		<Link
 			to={to}
-			className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+			className={`flex items-center gap-2 px-4 py-2 rounded-[var(--radius-md)] text-sm font-medium transition-colors ${
 				active
-					? 'bg-primary/10 text-primary'
-					: 'text-muted hover:text-gray-900 hover:bg-gray-100'
+					? 'bg-accent-light text-accent'
+					: 'text-text-muted hover:text-text-primary hover:bg-surface-alt'
 			}`}
 		>
 			<Icon className="w-4 h-4" />
@@ -40,14 +40,14 @@ function NavLink({
 
 function RootLayout() {
 	return (
-		<div className="min-h-screen bg-surface-alt">
-			<header className="sticky top-0 z-10 bg-surface border-b border-border">
-				<div className="max-w-6xl mx-auto px-6 h-16 flex items-center">
+		<div className="min-h-screen bg-gradient-to-br from-bg-gradient-from to-bg-gradient-to">
+			<header className="sticky top-0 z-10 bg-surface/80 backdrop-blur-md border-b border-border">
+				<div className="w-full max-w-[80%] mx-auto px-6 h-16 flex items-center">
 					<Link to="/" className="flex items-center gap-3">
-						<div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+						<div className="w-8 h-8 rounded-[var(--radius-md)] bg-accent flex items-center justify-center">
 							<Upload className="w-4 h-4 text-white" />
 						</div>
-						<span className="text-lg font-semibold tracking-tight">
+						<span className="font-serif text-lg font-semibold text-text-primary">
 							tn-file-upload
 						</span>
 					</Link>
@@ -61,17 +61,18 @@ function RootLayout() {
 					</nav>
 				</div>
 			</header>
-			<main className="max-w-6xl mx-auto px-6 py-10">
+			<main className="w-full max-w-[80%] mx-auto px-6 py-10">
 				<Outlet />
 			</main>
 			<Toaster
 				position="bottom-right"
 				toastOptions={{
 					style: {
-						borderRadius: '10px',
-						background: '#1e293b',
-						color: '#f8fafc',
+						borderRadius: 'var(--radius-md)',
+						background: '#2d3748',
+						color: '#f8f9fc',
 						fontSize: '14px',
+						fontFamily: 'var(--font-sans)',
 					},
 				}}
 			/>

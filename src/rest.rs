@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
@@ -22,6 +22,7 @@ use crate::storage::{Storage, StorageError};
 pub struct RestState {
     pub storage: Arc<dyn Storage>,
     pub chunk_size: usize,
+    pub max_file_size: u64,
 }
 
 /// Build the axum router for REST endpoints.
@@ -30,6 +31,10 @@ pub fn router(state: Arc<RestState>) -> Router {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
+
+    // Allow uploads up to max_file_size + overhead for multipart framing
+    #[allow(clippy::cast_possible_truncation)]
+    let body_limit = DefaultBodyLimit::max(state.max_file_size as usize + 1024 * 1024);
 
     let api = Router::new()
         .route("/upload", post(upload))
@@ -40,6 +45,7 @@ pub fn router(state: Arc<RestState>) -> Router {
 
     Router::new()
         .nest("/api", api)
+        .layer(body_limit)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -48,6 +54,7 @@ pub fn router(state: Arc<RestState>) -> Router {
 // --- Response types ---
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UploadResponse {
     file_id: String,
     size_bytes: u64,
@@ -55,6 +62,7 @@ struct UploadResponse {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct FileMetaResponse {
     file_id: String,
     file_name: String,
@@ -130,10 +138,19 @@ async fn upload(
 async fn list_files(
     State(state): State<Arc<RestState>>,
 ) -> Result<Json<Vec<FileMetaResponse>>, AppError> {
-    // The storage trait doesn't have a list method yet.
-    // For now, return empty. We'll add list to the trait next.
-    let _ = state;
-    Ok(Json(vec![]))
+    let files = state.storage.list().await?;
+    let response: Vec<FileMetaResponse> = files
+        .into_iter()
+        .map(|m| FileMetaResponse {
+            file_id: m.file_id,
+            file_name: m.file_name,
+            content_type: m.content_type,
+            size_bytes: m.size_bytes,
+            sha256_checksum: m.sha256_checksum,
+            uploaded_at: m.uploaded_at,
+        })
+        .collect();
+    Ok(Json(response))
 }
 
 #[tracing::instrument(skip(state))]

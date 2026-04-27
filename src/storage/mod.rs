@@ -49,4 +49,7 @@ pub trait Storage: Send + Sync + 'static {
 
     /// Delete a file and its metadata.
     async fn delete(&self, file_id: &str) -> Result<(), StorageError>;
+
+    /// List all finalized files.
+    async fn list(&self) -> Result<Vec<FileMetadata>, StorageError>;
 }
