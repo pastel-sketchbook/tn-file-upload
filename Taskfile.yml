@@ -144,6 +144,11 @@ tasks:
     cmds:
       - cargo watch -x "run --release --bin file-upload-server"
 
+  dev:smoke:
+    desc: Smoke test all upload functions (starts server, tests, stops)
+    cmds:
+      - ./scripts/smoke-test.sh {{.CLI_ARGS}}
+
   # ── Housekeeping ───────────────────────────────────────────
 
   clean:
