@@ -155,3 +155,30 @@ tasks:
     desc: Install optional dev tools
     cmds:
       - cargo install cargo-watch cargo-outdated cargo-audit tokei
+
+  # ── Versioning ──────────────────────────────────────────────
+
+  version:
+    desc: Show current version
+    cmds:
+      - ./scripts/version.sh show
+
+  version:patch:
+    desc: Bump patch version (0.1.0 → 0.1.1)
+    cmds:
+      - ./scripts/version.sh patch
+
+  version:minor:
+    desc: Bump minor version (0.1.0 → 0.2.0)
+    cmds:
+      - ./scripts/version.sh minor
+
+  version:major:
+    desc: Bump major version (0.1.0 → 1.0.0)
+    cmds:
+      - ./scripts/version.sh major
+
+  version:tag:
+    desc: Create a git tag for the current VERSION
+    cmds:
+      - ./scripts/version.sh tag
