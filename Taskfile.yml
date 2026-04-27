@@ -40,6 +40,11 @@ tasks:
     cmds:
       - cargo build
 
+  bench:
+    desc: Run criterion benchmarks
+    cmds:
+      - cargo bench
+
   build:release:
     desc: Build the project in release mode
     deps: [fmt, lint]
