@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package file_upload.v1;
+
+/// File upload service supporting chunked upload/download with metadata.
+service FileUpload {
+  /// Client-streaming: upload file in chunks, returns metadata on completion.
+  rpc Upload(stream UploadRequest) returns (UploadResponse);
+
+  /// Server-streaming: download file in chunks by ID.
+  rpc Download(DownloadRequest) returns (stream DownloadResponse);
+
+  /// Unary: retrieve file metadata by ID.
+  rpc GetMetadata(GetMetadataRequest) returns (FileMetadata);
+
+  /// Unary: delete a file by ID.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
+
+message UploadRequest {
+  oneof request {
+    UploadMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+/// Sent as the first message in an Upload stream.
+message UploadMetadata {
+  string file_name = 1;
+  string content_type = 2;
+}
+
+message UploadResponse {
+  string file_id = 1;
+  uint64 size_bytes = 2;
+  string sha256_checksum = 3;
+}
+
+message DownloadRequest {
+  string file_id = 1;
+}
+
+message DownloadResponse {
+  bytes chunk = 1;
+}
+
+message GetMetadataRequest {
+  string file_id = 1;
+}
+
+message FileMetadata {
+  string file_id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  uint64 size_bytes = 4;
+  string sha256_checksum = 5;
+  string uploaded_at = 6;
+}
+
+message DeleteRequest {
+  string file_id = 1;
+}
+
+message DeleteResponse {}
