@@ -140,14 +140,50 @@ tasks:
       - cargo watch -x test
 
   dev:
-    desc: Watch mode — rebuild and run server on save (requires cargo-watch)
+    desc: Start both Rust server and Vite SPA dev server
+    deps: [build]
     cmds:
-      - cargo watch -x "run --release --bin file-upload-server"
+      - |
+        cleanup() { kill $SERVER_PID $VITE_PID 2>/dev/null; }
+        trap cleanup EXIT
+
+        # Kill any stale processes on these ports
+        lsof -ti :3001 | xargs kill -9 2>/dev/null || true
+        lsof -ti :50051 | xargs kill -9 2>/dev/null || true
+        lsof -ti :3000 | xargs kill -9 2>/dev/null || true
+        sleep 1
+
+        AUTH_TOKEN="${AUTH_TOKEN:-dev-token}" ./target/debug/file-upload-server &
+        SERVER_PID=$!
+
+        # Wait for REST port to be ready
+        for i in 1 2 3 4 5; do
+          curl -s -o /dev/null http://[::1]:3001/api/files && break
+          sleep 1
+        done
+
+        cd web && bun run dev &
+        VITE_PID=$!
+        sleep 1
+
+        echo ""
+        echo "=== Dev servers running ==="
+        echo "  REST API: http://[::1]:3001"
+        echo "  gRPC:     [::1]:50051"
+        echo "  SPA:      http://localhost:3000"
+        echo ""
+        echo "Press Ctrl+C to stop all"
+        wait
 
   dev:smoke:
     desc: Smoke test all upload functions (starts server, tests, stops)
     cmds:
       - ./scripts/smoke-test.sh {{.CLI_ARGS}}
+
+  dev:watch:
+    desc: Watch mode — rebuild and run server on save (requires cargo-watch)
+    cmds:
+      - cargo watch -x "run --release --bin file-upload-server"
 
   # ── Housekeeping ───────────────────────────────────────────
 
