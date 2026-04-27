@@ -9,18 +9,20 @@ tasks:
     cmds:
       - task --list
 
+  # ── Quality ────────────────────────────────────────────────
+
   fmt:
     desc: Format code with rustfmt
     cmds:
       - cargo fmt
 
   fmt:check:
-    desc: Check if code is formatted (CI-friendly)
+    desc: Check formatting without modifying files
     cmds:
       - cargo fmt -- --check
 
   lint:
-    desc: Run clippy linter with pedantic warnings
+    desc: Run clippy with pedantic warnings as errors
     cmds:
       - cargo clippy -- -D warnings -W clippy::pedantic
 
@@ -30,92 +32,126 @@ tasks:
       - cargo test
 
   test:verbose:
-    desc: Run tests with verbose output
+    desc: Run tests with stdout visible
     cmds:
       - cargo test -- --nocapture
 
+  check:
+    desc: Quick type-check without codegen
+    cmds:
+      - cargo check
+
+  check:all:
+    desc: Format, lint, and test in one shot
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
+
+  # ── Build ──────────────────────────────────────────────────
+
   build:
-    desc: Build the project
+    desc: Build debug binary (formats and lints first)
     deps: [fmt, lint]
     cmds:
       - cargo build
+
+  build:release:
+    desc: Build release binary (formats and lints first)
+    deps: [fmt, lint]
+    cmds:
+      - cargo build --release
+
+  # ── Run ────────────────────────────────────────────────────
+
+  run:server:
+    desc: Start the gRPC server (release)
+    cmds:
+      - cargo run --release --bin file-upload-server
+
+  run:client:
+    desc: Run the gRPC client (release)
+    cmds:
+      - cargo run --release --bin file-upload-client
+
+  run:server:debug:
+    desc: Start the gRPC server (debug)
+    cmds:
+      - cargo run --bin file-upload-server
+
+  run:client:debug:
+    desc: Run the gRPC client (debug)
+    cmds:
+      - cargo run --bin file-upload-client
+
+  # ── Bench & Metrics ────────────────────────────────────────
 
   bench:
     desc: Run criterion benchmarks
     cmds:
       - cargo bench
 
-  build:release:
-    desc: Build the project in release mode
-    deps: [fmt, lint]
+  loc:
+    desc: Count lines of code with tokei
     cmds:
-      - cargo build --release
+      - tokei
 
-  run:server:
-    desc: Run the file upload gRPC server
-    cmds:
-      - cargo run --bin file-upload-server
-
-  run:client:
-    desc: Run the file upload gRPC client
-    cmds:
-      - cargo run --bin file-upload-client
-
-  clean:
-    desc: Clean build artifacts
-    cmds:
-      - cargo clean
-
-  check:
-    desc: Quick compile check without building
-    cmds:
-      - cargo check
+  # ── Docs ───────────────────────────────────────────────────
 
   doc:
-    desc: Generate documentation
+    desc: Generate and open rustdoc
     cmds:
       - cargo doc --no-deps --open
 
+  # ── Dependencies ───────────────────────────────────────────
+
   update:
-    desc: Update dependencies
+    desc: Update Cargo.lock to latest compatible versions
     cmds:
       - cargo update
 
   outdated:
-    desc: Check for outdated dependencies (requires cargo-outdated)
+    desc: List outdated dependencies (requires cargo-outdated)
     cmds:
       - cargo outdated
 
   audit:
-    desc: Security audit (requires cargo-audit)
+    desc: Check for known vulnerabilities (requires cargo-audit)
     cmds:
       - cargo audit
 
+  # ── Workflows ──────────────────────────────────────────────
+
+  pre:commit:
+    desc: Pre-commit gate — format, lint, test
+    deps: [fmt, lint, test]
+
   ci:
-    desc: Run full CI pipeline (format check, lint, test, build)
+    desc: CI pipeline — format check, lint, test, build
     cmds:
       - task: fmt:check
       - task: lint
       - task: test
       - task: build
 
-  pre:commit:
-    desc: Run checks before committing (TDD workflow)
-    deps: [fmt, lint, test]
-
   tdd:
-    desc: TDD cycle - run tests in watch mode (requires cargo-watch)
+    desc: Watch mode — re-run tests on save (requires cargo-watch)
     cmds:
       - cargo watch -x test
 
   dev:
-    desc: Development mode - rebuild and run server on file changes (requires cargo-watch)
+    desc: Watch mode — rebuild and run server on save (requires cargo-watch)
     cmds:
-      - cargo watch -x "run --bin file-upload-server"
+      - cargo watch -x "run --release --bin file-upload-server"
+
+  # ── Housekeeping ───────────────────────────────────────────
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - cargo clean
 
   install:tools:
-    desc: Install useful development tools
+    desc: Install optional dev tools
     cmds:
-      - cargo install cargo-watch
-      - cargo install cargo-outdated
-      - cargo install cargo-audit
+      - cargo install cargo-watch cargo-outdated cargo-audit tokei
