@@ -24,6 +24,7 @@ impl LocalStorage {
     /// # Errors
     ///
     /// Returns `StorageError::Io` if the directory cannot be created.
+    #[tracing::instrument(skip(base_path))]
     pub async fn new(
         base_path: impl Into<PathBuf>,
         max_file_size: u64,
@@ -142,8 +143,8 @@ impl Storage for LocalStorage {
         let now = chrono::Utc::now().to_rfc3339();
 
         meta.size_bytes = size;
-        meta.sha256_checksum = checksum.clone();
-        meta.uploaded_at = now.clone();
+        meta.sha256_checksum = checksum;
+        meta.uploaded_at = now;
         meta.finalized = true;
 
         let json =
@@ -155,8 +156,8 @@ impl Storage for LocalStorage {
             file_name: meta.file_name,
             content_type: meta.content_type,
             size_bytes: size,
-            sha256_checksum: checksum,
-            uploaded_at: now,
+            sha256_checksum: meta.sha256_checksum,
+            uploaded_at: meta.uploaded_at,
         })
     }
 

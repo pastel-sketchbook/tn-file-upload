@@ -125,6 +125,7 @@ impl FileUploadService {
     /// # Errors
     ///
     /// Returns `Status` on invalid input, storage failures, or size limit violations.
+    #[tracing::instrument(skip(self, stream))]
     pub async fn handle_upload(
         &self,
         mut stream: impl tokio_stream::Stream<Item = Result<UploadRequest, Status>> + Unpin + Send,

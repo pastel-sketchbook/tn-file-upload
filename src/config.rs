@@ -11,6 +11,7 @@ pub enum ConfigError {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub listen_addr: String,
+    pub rest_addr: Option<String>,
     pub auth_token: String,
     pub storage_path: String,
     pub max_file_size: u64,
@@ -41,6 +42,7 @@ impl Config {
 
         Ok(Self {
             listen_addr: env("LISTEN_ADDR").unwrap_or_else(|_| "[::]:50051".into()),
+            rest_addr: env("REST_ADDR").ok(),
             auth_token: env("AUTH_TOKEN").map_err(|_| ConfigError::Missing("AUTH_TOKEN".into()))?,
             storage_path: env("STORAGE_PATH").unwrap_or_else(|_| "./uploads".into()),
             max_file_size,

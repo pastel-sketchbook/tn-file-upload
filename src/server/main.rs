@@ -11,6 +11,7 @@ use tn_file_upload::config::Config;
 use tn_file_upload::health::{AppState, health_service};
 use tn_file_upload::interceptor::request_id_interceptor;
 use tn_file_upload::pb::file_upload_server::FileUploadServer;
+use tn_file_upload::rest::{self, RestState};
 use tn_file_upload::service::FileUploadService;
 use tn_file_upload::storage::local::LocalStorage;
 
@@ -33,9 +34,27 @@ async fn main() -> Result<()> {
         .await
         .context("initializing storage")?;
 
+    let storage = Arc::new(storage);
     let state = Arc::new(AppState::new());
-    let service = FileUploadService::new(Arc::new(storage), config.chunk_size);
+    let service = FileUploadService::new(storage.clone(), config.chunk_size);
 
+    // REST API server for browser SPA
+    let rest_addr = config.rest_addr.as_deref().unwrap_or("[::]:3001");
+    let rest_state = Arc::new(RestState {
+        storage: storage.clone(),
+        chunk_size: config.chunk_size,
+    });
+    let rest_router = rest::router(rest_state);
+    let rest_listener = TcpListener::bind(rest_addr)
+        .await
+        .context("binding REST listener")?;
+    tracing::info!(addr = %rest_addr, "REST API server listening");
+
+    tokio::spawn(async move {
+        axum::serve(rest_listener, rest_router).await.ok();
+    });
+
+    // gRPC server
     let listener = TcpListener::bind(&config.listen_addr)
         .await
         .context("binding listener")?;

@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
 
     let metadata_msg = UploadRequest {
         request: Some(upload_request::Request::Metadata(UploadMetadata {
-            file_name: file_name.clone(),
+            file_name,
             content_type: "application/octet-stream".into(),
         })),
     };

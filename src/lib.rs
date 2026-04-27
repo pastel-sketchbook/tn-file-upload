@@ -7,5 +7,6 @@ pub mod auth;
 pub mod config;
 pub mod health;
 pub mod interceptor;
+pub mod rest;
 pub mod service;
 pub mod storage;
