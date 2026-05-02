@@ -163,16 +163,13 @@ impl Storage for LocalStorage {
 
         // Initialize streaming hasher for this upload
         // Invariant: lock is never held across an await; poisoning implies a panic in another thread.
-        self.hashers
-            .lock()
-            .expect("hasher lock poisoned")
-            .insert(
-                file_id.clone(),
-                InFlightHasher {
-                    hasher: Sha256::new(),
-                    created_at: Instant::now(),
-                },
-            );
+        self.hashers.lock().expect("hasher lock poisoned").insert(
+            file_id.clone(),
+            InFlightHasher {
+                hasher: Sha256::new(),
+                created_at: Instant::now(),
+            },
+        );
 
         Ok(file_id)
     }

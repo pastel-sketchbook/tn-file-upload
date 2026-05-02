@@ -3,6 +3,8 @@
 //! Provides HTTP endpoints that wrap the storage backend directly,
 //! bypassing gRPC for browser clients that cannot use client-streaming.
 
+#![allow(clippy::needless_for_each)]
+
 use std::sync::Arc;
 
 use axum::Router;
@@ -15,6 +17,9 @@ use serde::Serialize;
 use subtle::ConstantTimeEq;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa::ToSchema;
+use utoipa_scalar::{Scalar, Servable};
 
 use crate::storage::{Storage, StorageError};
 
@@ -25,6 +30,19 @@ pub struct RestState {
     pub max_file_size: u64,
     pub auth_token: String,
 }
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "File Upload REST API",
+        version = "0.2.0",
+        description = "HTTP REST shim for the gRPC file upload service. \
+                       Supports multipart upload, chunked download, metadata, and deletion."
+    ),
+    paths(upload, list_files, get_metadata, delete_file, download),
+    components(schemas(UploadResponse, FileMetaResponse, ErrorResponse))
+)]
+struct ApiDoc;
 
 /// Build the axum router for REST endpoints.
 pub fn router(state: Arc<RestState>) -> Router {
@@ -50,10 +68,17 @@ pub fn router(state: Arc<RestState>) -> Router {
 
     Router::new()
         .nest("/api", api)
+        .route("/docs/openapi.json", get(openapi_json))
+        .merge(Scalar::with_url("/docs", ApiDoc::openapi()))
         .layer(body_limit)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+/// Serve the raw `OpenAPI` JSON spec.
+async fn openapi_json() -> impl IntoResponse {
+    Json(ApiDoc::openapi())
 }
 
 /// Validates the `x-auth-token` header on every REST request.
@@ -90,7 +115,7 @@ async fn auth_middleware(
 
 // --- Response types ---
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct UploadResponse {
     file_id: String,
@@ -98,7 +123,7 @@ struct UploadResponse {
     checksum: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct FileMetaResponse {
     file_id: String,
@@ -109,13 +134,24 @@ struct FileMetaResponse {
     uploaded_at: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ErrorResponse {
     error: String,
 }
 
 // --- Handlers ---
 
+#[utoipa::path(
+    post,
+    path = "/api/upload",
+    request_body(content_type = "multipart/form-data", description = "File to upload"),
+    responses(
+        (status = 200, description = "Upload successful", body = UploadResponse),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 413, description = "File too large", body = ErrorResponse),
+    ),
+    security(("auth_token" = []))
+)]
 #[tracing::instrument(skip(state, multipart))]
 async fn upload(
     State(state): State<Arc<RestState>>,
@@ -166,6 +202,14 @@ async fn upload(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/files",
+    responses(
+        (status = 200, description = "List of uploaded files", body = Vec<FileMetaResponse>),
+    ),
+    security(("auth_token" = []))
+)]
 #[tracing::instrument(skip(state))]
 async fn list_files(
     State(state): State<Arc<RestState>>,
@@ -185,6 +229,16 @@ async fn list_files(
     Ok(Json(response))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/files/{file_id}",
+    params(("file_id" = String, Path, description = "Unique file identifier")),
+    responses(
+        (status = 200, description = "File metadata", body = FileMetaResponse),
+        (status = 404, description = "File not found", body = ErrorResponse),
+    ),
+    security(("auth_token" = []))
+)]
 #[tracing::instrument(skip(state))]
 async fn get_metadata(
     State(state): State<Arc<RestState>>,
@@ -201,6 +255,16 @@ async fn get_metadata(
     }))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/files/{file_id}",
+    params(("file_id" = String, Path, description = "Unique file identifier")),
+    responses(
+        (status = 204, description = "File deleted"),
+        (status = 404, description = "File not found", body = ErrorResponse),
+    ),
+    security(("auth_token" = []))
+)]
 #[tracing::instrument(skip(state))]
 async fn delete_file(
     State(state): State<Arc<RestState>>,
@@ -211,6 +275,16 @@ async fn delete_file(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/files/{file_id}/download",
+    params(("file_id" = String, Path, description = "Unique file identifier")),
+    responses(
+        (status = 200, description = "File content stream", content_type = "application/octet-stream"),
+        (status = 404, description = "File not found", body = ErrorResponse),
+    ),
+    security(("auth_token" = []))
+)]
 #[tracing::instrument(skip(state))]
 async fn download(
     State(state): State<Arc<RestState>>,

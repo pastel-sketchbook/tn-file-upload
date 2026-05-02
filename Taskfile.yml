@@ -103,6 +103,26 @@ tasks:
     cmds:
       - cargo doc --no-deps --open
 
+  doc:openapi:
+    desc: Open the Scalar API docs UI in the browser (server must be running)
+    cmds:
+      - ./scripts/open-docs.sh
+
+  doc:openapi:json:
+    desc: Fetch the OpenAPI spec JSON from the running server
+    cmds:
+      - curl -s "http://localhost:3001/docs/openapi.json" | uv run python -m json.tool
+
+  doc:grpc:list:
+    desc: List available gRPC services via reflection (requires grpcurl)
+    cmds:
+      - grpcurl -plaintext [::1]:50051 list
+
+  doc:grpc:describe:
+    desc: Describe the FileUpload gRPC service via reflection (requires grpcurl)
+    cmds:
+      - grpcurl -plaintext [::1]:50051 describe file_upload.v1.FileUpload
+
   # ── Dependencies ───────────────────────────────────────────
 
   update:

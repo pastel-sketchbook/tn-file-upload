@@ -16,6 +16,8 @@ A gRPC file upload/download service built with Rust and [Tonic](https://github.c
 - **Authentication** — constant-time token validation (`subtle::ConstantTimeEq`) on both gRPC (`x-auth-token` metadata) and REST (`x-auth-token` header). Token injected from config (no global state).
 - **Request tracing** — UUID v7 request IDs injected via interceptor; all RPC methods instrumented with `tracing`.
 - **Health checks** — `tonic-health` gRPC health service for Kubernetes liveness/readiness probes.
+- **gRPC reflection** — `tonic-reflection` enables runtime service introspection (e.g. `grpcurl list`).
+- **OpenAPI docs** — Scalar UI at `/docs` on the REST server, auto-generated from handler annotations via `utoipa`.
 - **Graceful shutdown** — shared `CancellationToken` wires `SIGINT` to both gRPC, REST, and the health monitor; in-flight requests complete before exit.
 - **Stale upload reaper** — background task evicts abandoned in-flight upload hashers after a configurable TTL (default 30 min), preventing unbounded memory growth.
 - **Configurable limits** — max file size and chunk size controlled via environment variables.
@@ -42,6 +44,15 @@ Proto definition: [`proto/file_upload.proto`](proto/file_upload.proto)
 | `DELETE` | `/api/files/{id}` | Delete a file |
 
 All REST endpoints require the `x-auth-token` header.
+
+## API Documentation
+
+- **REST (OpenAPI / Scalar UI):** Start the server and visit `http://localhost:3001/docs`
+- **gRPC (reflection):** Use any reflection-aware client:
+  ```bash
+  grpcurl -plaintext [::1]:50051 list
+  grpcurl -plaintext [::1]:50051 describe file_upload.v1.FileUpload
+  ```
 
 ## Quick start
 

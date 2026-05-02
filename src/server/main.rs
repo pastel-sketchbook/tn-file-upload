@@ -11,7 +11,7 @@ use tn_file_upload::auth::make_auth_interceptor;
 use tn_file_upload::config::Config;
 use tn_file_upload::health::{AppState, health_service};
 use tn_file_upload::interceptor::request_id_interceptor;
-use tn_file_upload::pb::file_upload_server::FileUploadServer;
+use tn_file_upload::pb::{FILE_DESCRIPTOR_SET, file_upload_server::FileUploadServer};
 use tn_file_upload::rest::{self, RestState};
 use tn_file_upload::service::FileUploadService;
 use tn_file_upload::storage::local::LocalStorage;
@@ -77,11 +77,17 @@ async fn main() -> Result<()> {
     tracing::info!(addr = %config.listen_addr, "gRPC file upload server listening");
 
     let grpc_cancel = cancel.clone();
+    let reflection_service = tonic_reflection::server::Builder::configure()
+        .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
+        .build_v1()
+        .context("building reflection service")?;
+
     Server::builder()
         .add_service(FileUploadServer::with_interceptor(
             service,
             make_combined_interceptor(config.auth_token.clone()),
         ))
+        .add_service(reflection_service)
         .add_service(health_service(state, cancel.clone()))
         .serve_with_incoming_shutdown(
             tokio_stream::wrappers::TcpListenerStream::new(listener),
