@@ -11,6 +11,11 @@
  */
 
 const BASE_URL = '' // Same origin, proxied by Vite in dev
+const AUTH_TOKEN = 'dev-token' // TODO: make configurable for production
+
+function authHeaders(): HeadersInit {
+	return { 'x-auth-token': AUTH_TOKEN }
+}
 
 export interface FileMeta {
 	fileId: string
@@ -37,6 +42,7 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 
 	const resp = await fetch(`${BASE_URL}/api/upload`, {
 		method: 'POST',
+		headers: authHeaders(),
 		body: formData,
 	})
 
@@ -52,7 +58,9 @@ export async function uploadFile(file: File): Promise<UploadResult> {
  * List files via GET /api/files.
  */
 export async function listFiles(): Promise<FileMeta[]> {
-	const resp = await fetch(`${BASE_URL}/api/files`)
+	const resp = await fetch(`${BASE_URL}/api/files`, {
+		headers: authHeaders(),
+	})
 	if (!resp.ok) throw new Error('Failed to list files')
 	return resp.json()
 }
@@ -63,6 +71,7 @@ export async function listFiles(): Promise<FileMeta[]> {
 export async function deleteFile(fileId: string): Promise<void> {
 	const resp = await fetch(`${BASE_URL}/api/files/${fileId}`, {
 		method: 'DELETE',
+		headers: authHeaders(),
 	})
 	if (!resp.ok) throw new Error('Failed to delete file')
 }
@@ -71,7 +80,9 @@ export async function deleteFile(fileId: string): Promise<void> {
  * Download a file via GET /api/files/:id/download.
  */
 export async function downloadFile(fileId: string): Promise<Blob> {
-	const resp = await fetch(`${BASE_URL}/api/files/${fileId}/download`)
+	const resp = await fetch(`${BASE_URL}/api/files/${fileId}/download`, {
+		headers: authHeaders(),
+	})
 	if (!resp.ok) throw new Error('Failed to download file')
 	return resp.blob()
 }
