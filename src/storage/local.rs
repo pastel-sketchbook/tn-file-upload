@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -9,18 +10,27 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::Stream;
 use tokio_util::io::ReaderStream;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::pb::FileMetadata;
 
 use super::{Storage, StorageError};
 
+/// An in-flight hasher with its creation timestamp.
+struct InFlightHasher {
+    hasher: Sha256,
+    created_at: Instant,
+}
+
 /// Local filesystem storage backend.
 pub struct LocalStorage {
     base_path: PathBuf,
     max_file_size: u64,
     /// In-flight upload hashers, keyed by `file_id`.
-    hashers: Mutex<HashMap<String, Sha256>>,
+    hashers: Arc<Mutex<HashMap<String, InFlightHasher>>>,
+    /// Maximum time an upload can remain in-flight before the hasher is evicted.
+    upload_ttl: Duration,
 }
 
 impl LocalStorage {
@@ -39,8 +49,52 @@ impl LocalStorage {
         Ok(Self {
             base_path,
             max_file_size,
-            hashers: Mutex::new(HashMap::new()),
+            hashers: Arc::new(Mutex::new(HashMap::new())),
+            upload_ttl: Duration::from_mins(30),
         })
+    }
+
+    /// Spawn a background task that evicts stale in-flight hashers.
+    ///
+    /// Uploads that exceed `upload_ttl` without being finalized or aborted
+    /// have their hasher removed (preventing unbounded memory growth).
+    /// The task stops when `cancel` is cancelled.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal hasher mutex is poisoned (indicates a prior panic).
+    pub fn spawn_stale_upload_reaper(&self, cancel: CancellationToken) {
+        let hashers = Arc::clone(&self.hashers);
+        let ttl = self.upload_ttl;
+
+        tokio::spawn(async move {
+            let interval = ttl / 2; // sweep at half the TTL
+            loop {
+                tokio::select! {
+                    () = cancel.cancelled() => break,
+                    () = tokio::time::sleep(interval) => {}
+                }
+
+                // Invariant: lock is never held across an await.
+                let evicted: Vec<String> = {
+                    let mut map = hashers.lock().expect("hasher lock poisoned");
+                    let now = Instant::now();
+                    let stale: Vec<String> = map
+                        .iter()
+                        .filter(|(_, v)| now.duration_since(v.created_at) > ttl)
+                        .map(|(k, _)| k.clone())
+                        .collect();
+                    for id in &stale {
+                        map.remove(id);
+                    }
+                    stale
+                };
+
+                for id in &evicted {
+                    tracing::warn!(file_id = %id, "evicted stale in-flight upload hasher (TTL exceeded)");
+                }
+            }
+        });
     }
 
     fn data_path(&self, file_id: &str) -> PathBuf {
@@ -108,10 +162,17 @@ impl Storage for LocalStorage {
         fs::write(self.meta_path(&file_id), json).await?;
 
         // Initialize streaming hasher for this upload
+        // Invariant: lock is never held across an await; poisoning implies a panic in another thread.
         self.hashers
             .lock()
             .expect("hasher lock poisoned")
-            .insert(file_id.clone(), Sha256::new());
+            .insert(
+                file_id.clone(),
+                InFlightHasher {
+                    hasher: Sha256::new(),
+                    created_at: Instant::now(),
+                },
+            );
 
         Ok(file_id)
     }
@@ -144,13 +205,14 @@ impl Storage for LocalStorage {
         file.flush().await?;
 
         // Update streaming hasher
-        if let Some(hasher) = self
+        // Invariant: lock is never held across an await; poisoning implies a panic in another thread.
+        if let Some(entry) = self
             .hashers
             .lock()
             .expect("hasher lock poisoned")
             .get_mut(file_id)
         {
-            hasher.update(&data);
+            entry.hasher.update(&data);
         }
 
         Ok(())
@@ -165,15 +227,21 @@ impl Storage for LocalStorage {
             .map_err(|e| StorageError::Io(std::io::Error::other(e)))?;
 
         // Finalize the streaming hasher (falls back to file read if hasher missing)
-        let checksum = if let Some(hasher) = self
+        // Invariant: lock is never held across an await; poisoning implies a panic in another thread.
+        let checksum = if let Some(entry) = self
             .hashers
             .lock()
             .expect("hasher lock poisoned")
             .remove(file_id)
         {
-            hex::encode(hasher.finalize())
+            hex::encode(entry.hasher.finalize())
         } else {
-            // Fallback: compute from file in streaming fashion (e.g. after restart)
+            // Fallback: hasher missing (e.g. server restarted mid-upload). Re-hash from disk.
+            // WARNING: this verifies on-disk integrity only, not what the client originally streamed.
+            tracing::warn!(
+                file_id = %file_id,
+                "in-memory hasher missing; falling back to on-disk re-hash (integrity degraded)"
+            );
             let mut file = fs::File::open(self.data_path(file_id)).await?;
             let mut hasher = Sha256::new();
             let mut buf = vec![0u8; 64 * 1024];
@@ -210,6 +278,7 @@ impl Storage for LocalStorage {
     }
 
     async fn abort(&self, file_id: &str) -> Result<(), StorageError> {
+        // Invariant: lock is never held across an await; poisoning implies a panic in another thread.
         self.hashers
             .lock()
             .expect("hasher lock poisoned")

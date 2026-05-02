@@ -43,6 +43,7 @@ async fn main() -> Result<()> {
     let storage = Arc::new(storage);
     let state = Arc::new(AppState::new());
     let cancel = CancellationToken::new();
+    storage.spawn_stale_upload_reaper(cancel.clone());
     let service = FileUploadService::new(storage.clone(), config.chunk_size);
 
     // REST API server for browser SPA
