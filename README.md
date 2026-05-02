@@ -5,15 +5,17 @@ A production-ready gRPC file upload/download service built with Rust and [Tonic]
 ## Features
 
 - **Chunked upload** — client-streaming RPC; files are streamed in configurable chunks without buffering the entire file in memory.
-- **Chunked download** — server-streaming RPC; files are read and streamed back in chunks.
-- **SHA-256 integrity verification** — checksums are computed incrementally during upload and returned on completion.
+- **Chunked download** — server-streaming RPC; files are read via `ReaderStream` and streamed back in chunks (zero full-file buffering).
+- **REST API** — axum-based HTTP endpoints (`/api/upload`, `/api/files`, `/api/files/{id}/download`) for browser SPAs that cannot use gRPC client-streaming.
+- **SHA-256 integrity verification** — checksums are computed incrementally during upload via an in-memory streaming hasher and returned on completion.
 - **File metadata** — name, size, content type, checksum, and upload timestamp stored alongside file data.
 - **File deletion** — remove files and associated metadata by ID.
 - **Storage abstraction** — pluggable `Storage` trait; ships with a local filesystem backend.
-- **Authentication** — interceptor validates `x-auth-token` metadata header on every request.
+- **Authentication** — constant-time token validation (`subtle::ConstantTimeEq`) on both gRPC (`x-auth-token` metadata) and REST (`x-auth-token` header). Token injected from config (no global state).
 - **Request tracing** — UUID v7 request IDs injected via interceptor; all RPC methods instrumented with `tracing`.
 - **Health checks** — `tonic-health` gRPC health service for Kubernetes liveness/readiness probes.
-- **Graceful shutdown** — `SIGINT` (Ctrl+C) triggers HTTP/2 GOAWAY, allowing in-flight RPCs to complete.
+- **Graceful shutdown** — shared `CancellationToken` wires `SIGINT` to both gRPC, REST, and the health monitor; in-flight requests complete before exit.
+- **Stale upload reaper** — background task evicts abandoned in-flight upload hashers after a configurable TTL (default 30 min), preventing unbounded memory growth.
 - **Configurable limits** — max file size and chunk size controlled via environment variables.
 
 ## gRPC API
@@ -26,6 +28,18 @@ A production-ready gRPC file upload/download service built with Rust and [Tonic]
 | `Delete` | Unary | Delete a file by ID |
 
 Proto definition: [`proto/file_upload.proto`](proto/file_upload.proto)
+
+## REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/upload` | Multipart file upload (streamed chunk-by-chunk) |
+| `GET` | `/api/files` | List all uploaded files |
+| `GET` | `/api/files/{id}` | Get file metadata |
+| `GET` | `/api/files/{id}/download` | Stream file download |
+| `DELETE` | `/api/files/{id}` | Delete a file |
+
+All REST endpoints require the `x-auth-token` header.
 
 ## Quick start
 
@@ -59,7 +73,8 @@ All configuration is via environment variables. See [`.env.example`](.env.exampl
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `AUTH_TOKEN` | Yes | `dev-token` (debug only) | Authentication token |
-| `LISTEN_ADDR` | No | `[::]:50051` | Server bind address |
+| `LISTEN_ADDR` | No | `[::]:50051` | gRPC server bind address |
+| `REST_ADDR` | No | `[::]:3001` | REST API bind address |
 | `STORAGE_PATH` | No | `./uploads` | Directory for uploaded files |
 | `MAX_FILE_SIZE` | No | `104857600` (100 MiB) | Maximum upload size in bytes |
 | `CHUNK_SIZE` | No | `65536` (64 KiB) | Chunk size for streaming |
@@ -84,14 +99,15 @@ task ci            # Full CI pipeline
 src/
   lib.rs              # Proto module, re-exports
   config.rs           # Typed env config
-  auth.rs             # Auth interceptor
+  auth.rs             # Auth interceptor (constant-time, DI)
   interceptor.rs      # Request-ID interceptor (UUID v7)
-  health.rs           # tonic-health service + AppState
+  health.rs           # tonic-health service + background monitor
+  rest.rs             # REST API (axum) with auth middleware
   service.rs          # FileUpload gRPC trait implementation
   storage/
     mod.rs            # Storage trait abstraction
-    local.rs          # Local filesystem backend
-  server/main.rs      # Server binary
+    local.rs          # Local filesystem backend + stale upload reaper
+  server/main.rs      # Server binary (gRPC + REST)
   client/main.rs      # Client binary
 proto/
   file_upload.proto   # Service and message definitions
@@ -103,13 +119,14 @@ tests/
 
 ## Tests
 
-14 tests covering:
+17 tests covering:
 
 - Upload validation (empty stream, invalid first message)
 - Upload/download round-trip with checksum verification
 - Metadata retrieval and not-found errors
 - Delete and not-found errors
 - Auth interceptor (missing, invalid, valid tokens)
+- REST auth middleware (missing, invalid, valid tokens)
 - Request-ID interceptor (generation, propagation)
 - Config parsing (missing values, invalid values, defaults)
 - Full gRPC transport integration (upload → metadata → download → delete → verify gone)
