@@ -1,5 +1,7 @@
 version: "3"
 
+dotenv: [".env"]
+
 vars:
   CARGO_TARGET_DIR: "{{.USER_WORKING_DIR}}/target"
 

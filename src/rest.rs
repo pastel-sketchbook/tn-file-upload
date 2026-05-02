@@ -35,7 +35,6 @@ pub struct RestState {
 #[openapi(
     info(
         title = "File Upload REST API",
-        version = "0.2.0",
         description = "HTTP REST shim for the gRPC file upload service. \
                        Supports multipart upload, chunked download, metadata, and deletion."
     ),
@@ -43,6 +42,13 @@ pub struct RestState {
     components(schemas(UploadResponse, FileMetaResponse, ErrorResponse))
 )]
 struct ApiDoc;
+
+/// Build the `OpenAPI` spec with the version sourced from `Cargo.toml` (synced with VERSION file).
+fn openapi_spec() -> utoipa::openapi::OpenApi {
+    let mut spec = ApiDoc::openapi();
+    env!("CARGO_PKG_VERSION").clone_into(&mut spec.info.version);
+    spec
+}
 
 /// Build the axum router for REST endpoints.
 pub fn router(state: Arc<RestState>) -> Router {
@@ -69,7 +75,7 @@ pub fn router(state: Arc<RestState>) -> Router {
     Router::new()
         .nest("/api", api)
         .route("/docs/openapi.json", get(openapi_json))
-        .merge(Scalar::with_url("/docs", ApiDoc::openapi()))
+        .merge(Scalar::with_url("/docs", openapi_spec()))
         .layer(body_limit)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -78,7 +84,7 @@ pub fn router(state: Arc<RestState>) -> Router {
 
 /// Serve the raw `OpenAPI` JSON spec.
 async fn openapi_json() -> impl IntoResponse {
-    Json(ApiDoc::openapi())
+    Json(openapi_spec())
 }
 
 /// Validates the `x-auth-token` header on every REST request.

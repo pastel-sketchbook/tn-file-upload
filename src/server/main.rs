@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     Server::builder()
         .add_service(FileUploadServer::with_interceptor(
             service,
-            make_combined_interceptor(config.auth_token.clone()),
+            make_combined_interceptor(config.auth_token),
         ))
         .add_service(reflection_service)
         .add_service(health_service(state, cancel.clone()))

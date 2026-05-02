@@ -176,7 +176,7 @@ impl Storage for LocalStorage {
 
     async fn append(&self, file_id: &str, data: Bytes) -> Result<(), StorageError> {
         let meta_path = self.meta_path(file_id);
-        if !meta_path.exists() {
+        if !fs::try_exists(&meta_path).await.unwrap_or(false) {
             return Err(StorageError::NotFound(file_id.to_owned()));
         }
 
@@ -329,7 +329,10 @@ impl Storage for LocalStorage {
 
     async fn delete(&self, file_id: &str) -> Result<(), StorageError> {
         // Verify exists
-        if !self.meta_path(file_id).exists() {
+        if !fs::try_exists(self.meta_path(file_id))
+            .await
+            .unwrap_or(false)
+        {
             return Err(StorageError::NotFound(file_id.to_owned()));
         }
         remove_if_exists(self.data_path(file_id)).await?;
