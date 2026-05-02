@@ -6,13 +6,13 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Request, State};
 use axum::http::StatusCode;
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
-use bytes::Bytes;
 use serde::Serialize;
-use tokio_stream::StreamExt;
+use subtle::ConstantTimeEq;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -23,6 +23,7 @@ pub struct RestState {
     pub storage: Arc<dyn Storage>,
     pub chunk_size: usize,
     pub max_file_size: u64,
+    pub auth_token: String,
 }
 
 /// Build the axum router for REST endpoints.
@@ -41,7 +42,11 @@ pub fn router(state: Arc<RestState>) -> Router {
         .route("/files", get(list_files))
         .route("/files/{file_id}", get(get_metadata))
         .route("/files/{file_id}", delete(delete_file))
-        .route("/files/{file_id}/download", get(download));
+        .route("/files/{file_id}/download", get(download))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     Router::new()
         .nest("/api", api)
@@ -49,6 +54,38 @@ pub fn router(state: Arc<RestState>) -> Router {
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+/// Validates the `x-auth-token` header on every REST request.
+async fn auth_middleware(
+    State(state): State<Arc<RestState>>,
+    req: Request,
+    next: Next,
+) -> Result<Response, Response> {
+    let token = req
+        .headers()
+        .get("x-auth-token")
+        .and_then(|v| v.to_str().ok());
+
+    match token {
+        Some(t) if t.as_bytes().ct_eq(state.auth_token.as_bytes()).into() => {
+            Ok(next.run(req).await)
+        }
+        Some(_) => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "invalid auth token".into(),
+            }),
+        )
+            .into_response()),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "missing auth token".into(),
+            }),
+        )
+            .into_response()),
+    }
 }
 
 // --- Response types ---
@@ -84,7 +121,7 @@ async fn upload(
     State(state): State<Arc<RestState>>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
-    let Some(field) = multipart
+    let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| AppError::bad_request(e.to_string()))?
@@ -100,21 +137,16 @@ async fn upload(
 
     let file_id = state.storage.create(&file_name, &content_type).await?;
 
-    let data = field
-        .bytes()
+    // Stream chunks directly from the multipart field without buffering the whole file
+    while let Some(chunk) = field
+        .chunk()
         .await
-        .map_err(|e| AppError::bad_request(e.to_string()))?;
-
-    // Write in chunk_size increments
-    let mut offset = 0;
-    while offset < data.len() {
-        let end = (offset + state.chunk_size).min(data.len());
-        let chunk = Bytes::copy_from_slice(&data[offset..end]);
+        .map_err(|e| AppError::bad_request(e.to_string()))?
+    {
         if let Err(e) = state.storage.append(&file_id, chunk).await {
             let _ = state.storage.abort(&file_id).await;
             return Err(e.into());
         }
-        offset = end;
     }
 
     let meta = match state.storage.finalize(&file_id).await {
@@ -185,16 +217,13 @@ async fn download(
     Path(file_id): Path<String>,
 ) -> Result<Response, AppError> {
     let meta = state.storage.metadata(&file_id).await?;
-    let mut stream = state
+    let stream = state
         .storage
         .read_chunks(&file_id, state.chunk_size)
         .await?;
 
-    #[allow(clippy::cast_possible_truncation)]
-    let mut body = Vec::with_capacity(meta.size_bytes as usize);
-    while let Some(chunk) = stream.next().await {
-        body.extend_from_slice(&chunk?);
-    }
+    // Stream the file directly without buffering in memory
+    let body = axum::body::Body::from_stream(stream);
 
     Ok((
         StatusCode::OK,
@@ -258,5 +287,75 @@ impl IntoResponse for AppError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::storage::local::LocalStorage;
+
+    async fn test_state(dir: &std::path::Path) -> Arc<RestState> {
+        let storage = LocalStorage::new(dir.to_str().unwrap(), 10 * 1024 * 1024)
+            .await
+            .unwrap();
+        Arc::new(RestState {
+            storage: Arc::new(storage),
+            chunk_size: 4096,
+            max_file_size: 10 * 1024 * 1024,
+            auth_token: "test-secret".into(),
+        })
+    }
+
+    #[tokio::test]
+    async fn rejects_missing_auth_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path()).await;
+        let app = router(state);
+
+        let req = Request::builder()
+            .uri("/api/files")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_auth_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path()).await;
+        let app = router(state);
+
+        let req = Request::builder()
+            .uri("/api/files")
+            .header("x-auth-token", "wrong-token")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn accepts_valid_auth_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path()).await;
+        let app = router(state);
+
+        let req = Request::builder()
+            .uri("/api/files")
+            .header("x-auth-token", "test-secret")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        // 200 OK (empty file list) — not 401
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }

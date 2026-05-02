@@ -57,10 +57,7 @@ mod tests {
 
     #[test]
     fn missing_auth_token_returns_error() {
-        let result = Config::from_env_fn(|key| match key {
-            "AUTH_TOKEN" => Err(std::env::VarError::NotPresent),
-            _ => Err(std::env::VarError::NotPresent),
-        });
+        let result = Config::from_env_fn(|_| Err(std::env::VarError::NotPresent));
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("AUTH_TOKEN"));
     }

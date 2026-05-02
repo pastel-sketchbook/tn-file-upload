@@ -1,6 +1,6 @@
 [package]
 name = "tn-file-upload"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.95.0"
 
@@ -23,10 +23,11 @@ prost = "0.14.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.11.0"
+subtle = "2.6.1"
 thiserror = "2.0.18"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-stream = "0.1.18"
-tokio-util = "0.7.18"
+tokio-util = { version = "0.7.18", features = ["rt"] }
 tonic = "0.14.5"
 tonic-health = "0.14.5"
 tonic-prost = "0.14"
@@ -41,6 +42,7 @@ tonic-prost-build = "0.14.5"
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["async_tokio"] }
 tempfile = "3.27.0"
+tower = "0.5.3"
 
 [[bench]]
 name = "file_upload"

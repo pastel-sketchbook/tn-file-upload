@@ -57,9 +57,9 @@ fn bench_upload(c: &mut Criterion) {
                 || {
                     let data = data.clone();
                     async move {
-                        let (svc, _dir) = setup_service().await;
+                        let (svc, dir) = setup_service().await;
                         let msgs = upload_messages("bench.bin", &data, 64 * 1024);
-                        (svc, _dir, msgs)
+                        (svc, dir, msgs)
                     }
                 },
                 |setup_future| async move {
@@ -87,12 +87,12 @@ fn bench_download(c: &mut Criterion) {
                 || {
                     let data = data.clone();
                     async move {
-                        let (svc, _dir) = setup_service().await;
+                        let (svc, dir) = setup_service().await;
                         let msgs = upload_messages("bench.bin", &data, 64 * 1024);
                         let stream = tokio_stream::iter(msgs);
                         let resp = svc.handle_upload(stream).await.unwrap();
                         let file_id = resp.into_inner().file_id;
-                        (svc, _dir, file_id)
+                        (svc, dir, file_id)
                     }
                 },
                 |setup_future| async move {
