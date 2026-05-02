@@ -1,6 +1,8 @@
 # tn-file-upload
 
-A production-ready gRPC file upload/download service built with Rust and [Tonic](https://github.com/hyperium/tonic).
+> **This repository is for learning purposes only.** It is not intended for production use.
+
+A gRPC file upload/download service built with Rust and [Tonic](https://github.com/hyperium/tonic), designed to explore production-grade patterns (streaming, auth, graceful shutdown, storage abstraction).
 
 ## Features
 
